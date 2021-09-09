@@ -1,0 +1,122 @@
+mvn -f $WORK_HOME/HARDWARE/HardwareBasedQueues/pom.xml clean install
+taskset -c 1,7 java -XX:+PreserveFramePointer -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0 500
+
+################CPU################PERF
+mkdir -p $WORK_HOME/resources/tmp/ull/perf
+sudo $WORK_HOME/resources/FlameGraph/jmaps -u; sudo perf record -F 99 -o $WORK_HOME/resources/tmp/ull/perf/inline.QueuePerfTest01.dat -p `pgrep -f QueuePerfTest` -g -- sleep 10; sudo perf script -i $WORK_HOME/resources/tmp/ull/perf/inline.QueuePerfTest01.dat | stackcollapse-perf.pl> $WORK_HOME/resources/tmp/ull/perf/inline.QueuePerfTest01.folded; flamegraph.pl --color=java $WORK_HOME/resources/tmp/ull/perf/inline.QueuePerfTest01.folded > $WORK_HOME/resources/tmp/ull/perf/inline.QueuePerfTest01.svg
+
+################CPU################PERF################(Flamescope subsecond latency heatmaps)
+
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/ull/perf/inline.overall.dat -a -g -- sleep 120;sudo $WORK_HOME/resources/FlameGraph/jmaps -u;sudo perf script --header -i $WORK_HOME/resources/tmp/ull/perf/inline.overall.dat > $WORK_HOME/resources/tmp/ull/perf/stacks.overall.dat;cp $WORK_HOME/resources/tmp/ull/perf/stacks.overall.dat $WORK_HOME/resources/flamescope/examples/ 
+
+#On a different terminal
+cd $WORK_HOME/resources/flamescope
+python run.py
+
+################CPU################PERF################Concurrency Example
+mkdir -p $WORK_HOME/resources/tmp/cont/perf
+java -Xmx2500m -cp $WORK_HOME/CONCURRENCY/LockContention/target/LockContention-1.0-SNAPSHOT.jar org.mk.training.lockcontention.BailoutMain
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/cont/perf/lock1.overall.dat -a -g -- sleep 30;sudo $WORK_HOME/resources/FlameGraph/jmaps -u;sudo perf script --header -i $WORK_HOME/resources/tmp/cont/perf/lock1.overall.dat > $WORK_HOME/resources/tmp/cont/perf/stacks.locks1.dat;cp $WORK_HOME/resources/tmp/cont/perf/stacks.locks1.dat $WORK_HOME/resources/flamescope/examples/;kill -9 `pgrep -f BailoutMain` 
+
+java -Xmx2500m -cp $WORK_HOME/CONCURRENCY/LockContention/target/LockContention-1.0-SNAPSHOT.jar org.mk.training.lockcontention2.BailoutMain
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/cont/perf/lock2.overall.dat -a -g -- sleep 30;sudo $WORK_HOME/resources/FlameGraph/jmaps -u;sudo perf script --header -i $WORK_HOME/resources/tmp/cont/perf/lock2.overall.dat > $WORK_HOME/resources/tmp/cont/perf/stacks.locks2.dat;cp $WORK_HOME/resources/tmp/cont/perf/stacks.locks2.dat $WORK_HOME/resources/flamescope/examples/;kill -9 `pgrep -f BailoutMain` 
+
+java -Xmx2500m -cp $WORK_HOME/CONCURRENCY/LockContention/target/LockContention-1.0-SNAPSHOT.jar org.mk.training.lockcontention3.BailoutMain
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/cont/perf/lock3.overall.dat -a -g -- sleep 30;sudo $WORK_HOME/resources/FlameGraph/jmaps -u;sudo perf script --header -i $WORK_HOME/resources/tmp/cont/perf/lock3.overall.dat > $WORK_HOME/resources/tmp/cont/perf/stacks.locks3.dat;cp $WORK_HOME/resources/tmp/cont/perf/stacks.locks3.dat $WORK_HOME/resources/flamescope/examples/;kill -9 `pgrep -f BailoutMain` 
+
+################CPU################bcc profile
+mkdir -p $WORK_HOME/resources/tmp/ull/bcc
+sudo $WORK_HOME/resources/FlameGraph/jmaps -u; sudo /usr/share/bcc/tools/profile -afp `pgrep -f QueuePerfTest` > $WORK_HOME/resources/tmp/ull/bcc/out.LowLatencyMediaDriver01.txt;flamegraph.pl --color=java --hash < $WORK_HOME/resources/tmp/ull/bcc/out.LowLatencyMediaDriver01.txt > $WORK_HOME/resources/tmp/ull/bcc/out.LowLatencyMediaDriver01.svg
+
+################CPU################bpftrace profile
+mkdir -p $WORK_HOME/resources/tmp/ull/bpftrace
+sudo bpftrace --unsafe -e "profile:hz:99 /pid == `pgrep -f QueuePerfTest`/ {@[ustack] = count(); } END { system(\"./resources/FlameGraph/jmaps -u\"); }" > $WORK_HOME/resources/tmp/ull/bpftrace/ust_prof.bpftrace.QueuePerfTest.txt;stackcollapse-bpftrace.pl < $WORK_HOME/resources/tmp/ull/bpftrace/ust_prof.bpftrace.QueuePerfTest.txt | flamegraph.pl --color=java --hash > $WORK_HOME/resources/tmp/ull/bpftrace/ust_prof.bpftrace.QueuePerfTest.svg
+
+sudo bpftrace --unsafe -e "profile:hz:99 /pid == `pgrep -f QueuePerfTest`/ {@[ustack,kstack] = count(); } END { system(\"./resources/FlameGraph/jmaps -u\"); }" > $WORK_HOME/resources/tmp/ull/bpftrace/ustkst_prof.bpftrace.QueuePerfTest.txt;stackcollapse-bpftrace.pl < $WORK_HOME/resources/tmp/ull/bpftrace/ustkst_prof.bpftrace.QueuePerfTest.txt | flamegraph.pl --color=java --hash > $WORK_HOME/resources/tmp/ull/bpftrace/ustkst_prof.bpftrace.QueuePerfTest.svg
+
+################OFF CPU################perf
+sudo $WORK_HOME/resources/FlameGraph/jmaps;
+sudo perf record -e sched:sched_stat_sleep -e sched:sched_switch -e sched:sched_process_exit -g -p `pgrep -f QueuePerfTest` -o  $WORK_HOME/resources/tmp/perf/abqoff.data.raw
+sudo perf inject -v -s -i $WORK_HOME/resources/tmp/perf/abqoff.data.raw -o $WORK_HOME/resources/tmp/perf/abqoff.data
+sudo perf script -i $WORK_HOME/resources/tmp/perf/abqoff.data -F comm,pid,tid,cpu,time,period,event,ip,sym,dso,trace | awk '
+    NF > 4 { exec = $1; period_ms = int($5 / 1000000) }
+    NF > 1 && NF <= 4 && period_ms > 0 { print $2 }
+    NF < 2 && period_ms > 0 { printf "%s\n%d\n\n", exec, period_ms }' | stackcollapse.pl | flamegraph.pl --countname=ms --title="Off-CPU Time Flame Graph" --colors=io > $WORK_HOME/resources/tmp/perf/offcpuabq.svg
+
+################OFF CPU################bcc
+sudo /usr/share/bcc/tools/offcputime -f -p `pgrep -f QueuePerfTest`> $WORK_HOME/resources/tmp/ull/bcc/out.QueuePerfTest.offcpu;sudo $WORK_HOME/resources/FlameGraph/jmaps;flamegraph.pl --color=chain --countname=us < $WORK_HOME/resources/tmp/ull/bcc/out.QueuePerfTest.offcpu > $WORK_HOME/resources/tmp/ull/bcc/out.QueuePerfTest.offcpu.svg
+
+################OFF Wakeuptime################bcc
+sudo /usr/share/bcc/tools/wakeuptime -fu 20 > $WORK_HOME/resources/tmp/ull/bcc/wakeuptime.txt;sudo $WORK_HOME/resources/FlameGraph/jmaps;flamegraph.pl --color=chain --countname=us < $WORK_HOME/resources/tmp/ull/bcc/wakeuptime.txt > $WORK_HOME/resources/tmp/ull/bcc/wakeuptime.svg
+
+################OFFCPU and Wakeuptime################bcc
+sudo /usr/share/bcc/tools/offwaketime -fu 20 > $WORK_HOME/resources/tmp/ull/bcc/offcpuwakeup.txt;sudo $WORK_HOME/resources/FlameGraph/jmaps;flamegraph.pl --color=chain --countname=us < $WORK_HOME/resources/tmp/ull/bcc/offcpuwakeup.txt > $WORK_HOME/resources/tmp/ull/bcc/offcpuwakeup.svg
+
+sudo /usr/share/bcc/tools/offwaketime -f -p `pgrep -f QueuePerfTest`> $WORK_HOME/resources/tmp/ull/bcc/QueuePerfTest.offcpuwakeup.txt;sudo $WORK_HOME/resources/FlameGraph/jmaps;flamegraph.pl --color=chain --countname=us < $WORK_HOME/resources/tmp/ull/bcc/QueuePerfTest.offcpuwakeup.txt > $WORK_HOME/resources/tmp/ull/bcc/QueuePerfTest.offcpuwakeup.svg
+
+################CPI################perf
+mkdir -p $WORK_HOME/resources/tmp/ull/cpi/perf
+sudo $WORK_HOME/resources/FlameGraph/jmaps;sudo perf record -e cpu/event=0xa2,umask=0x1,name=resource_stalls_any,period=2000003/ -e cpu/event=0x3c,umask=0x0,name=cpu_clk_unhalted_thread_p,period=2000003/ -F 200 -o $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.dat -a -g -p `pgrep -f QueuePerfTest`
+sudo perf script -i $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.dat > $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.perf
+stackcollapse-perf.pl --event-filter=cpu_clk_unhalted_thread_p $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.perf > $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.cycles.folded
+stackcollapse-perf.pl --event-filter=resource_stalls_any $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.perf > $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.stalls.folded;
+difffolded.pl -n $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.stalls.folded $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flame.QueuePerfTest.00.cycles.folded | flamegraph.pl --title "CPI Flame Graph: blue=stalls, red=instructions" --width=900 > $WORK_HOME/resources/tmp/ull/cpi/perf/cpi_flamegraph_small.QueuePerfTest.00.svg
+
+
+################CPU################PERF################Messaging System
+./HIGHPERFORMANCELIBRARIES/aeron-master/gradlew -b HIGHPERFORMANCELIBRARIES/aeron-master/build.gradle build
+mkdir -p $WORK_HOME/resources/tmp/ull/messaging/perf
+
+java -XX:+PreserveFramePointer -cp $WORK_HOME/HIGHPERFORMANCELIBRARIES/aeron-master/aeron-all/build/libs/aeron-all-1.31.2-SNAPSHOT.jar io.aeron.samples.EmbeddedIpcThroughput
+
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/ull/messaging/perf/ipc.inline.profile01.dat -p `pgrep -f EmbeddedIpcThroughput` -g -- sleep 10;sudo $WORK_HOME/resources/FlameGraph/jmaps -u; sudo perf script -i $WORK_HOME/resources/tmp/ull/messaging/perf/ipc.inline.profile01.dat | stackcollapse-perf.pl> $WORK_HOME/resources/tmp/ull/messaging/perf/ipc.inline.perf-folded; flamegraph.pl --color=java $WORK_HOME/resources/tmp/ull/messaging/perf/ipc.inline.perf-folded > $WORK_HOME/resources/tmp/ull/messaging/perf/ipc.inline-kernel.svg
+
+java -XX:+PreserveFramePointer -cp $WORK_HOME/HIGHPERFORMANCELIBRARIES/aeron-master/aeron-all/build/libs/aeron-all-1.31.2-SNAPSHOT.jar io.aeron.samples.LowLatencyMediaDriver
+
+java -XX:+PreserveFramePointer -cp $WORK_HOME/HIGHPERFORMANCELIBRARIES/aeron-master/aeron-all/build/libs/aeron-all-1.31.2-SNAPSHOT.jar io.aeron.samples.RateSubscriber
+
+java -XX:+PreserveFramePointer -cp $WORK_HOME/HIGHPERFORMANCELIBRARIES/aeron-master/aeron-all/build/libs/aeron-all-1.31.2-SNAPSHOT.jar io.aeron.samples.StreamingPublisher
+
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/ull/messaging/perf/inline.profile01.dat -p `pgrep -f LowLatencyMediaDriver` -g -- sleep 10;sudo $WORK_HOME/resources/FlameGraph/jmaps -u; sudo perf script -i $WORK_HOME/resources/tmp/ull/messaging/perf/inline.profile01.dat | stackcollapse-perf.pl> $WORK_HOME/resources/tmp/ull/messaging/perf/inline.perf-folded; flamegraph.pl --color=java $WORK_HOME/resources/tmp/ull/messaging/perf/inline.perf-folded > $WORK_HOME/resources/tmp/ull/messaging/perf/inline-kernel.svg
+
+sudo perf record -F 99 -o $WORK_HOME/resources/tmp/ull/messaging/perf/profile01.dat -p `pgrep -f LowLatencyMediaDriver` -g -- sleep 10;sudo $WORK_HOME/resources/FlameGraph/jmaps; sudo perf script -i $WORK_HOME/resources/tmp/ull/messaging/perf/profile01.dat | stackcollapse-perf.pl> $WORK_HOME/resources/tmp/ull/messaging/perf/profile.perf-folded; flamegraph.pl --color=java $WORK_HOME/resources/tmp/ull/messaging/perf/profile.perf-folded > $WORK_HOME/resources/tmp/ull/messaging/perf/profile-kernel.svg
+
+
+################Legacy Dont Use################
+taskset -c 1,5 java -agentpath:$WORK_HOME/resources/perf-map-agent/libperfmap.so=unfold,msig -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0 1000
+
+taskset -c 1,5 java -agentpath:$WORK_HOME/resources/lightweight-java-profiler-read-only/build-64/liblagent.so -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0 1000
+
+
+sudo $WORK_HOME/resources/nginx-systemtap-toolkit/sample-bt -p 11144 -t 10 -u -k > $WORK_HOME/resources/tmp/oncpu.bt
+stackcollapse-stap.pl $WORK_HOME/resources/tmp/oncpu.bt > $WORK_HOME/resources/tmp/oncpu.cbt
+flamegraph.pl $WORK_HOME/resources/tmp/oncpu.cbt > $WORK_HOME/resources/tmp/oncpu.svg
+
+sudo $WORK_HOME/resources/nginx-systemtap-toolkit/sample-bt-off-cpu -p 14139 -t 10 -u -k > $WORK_HOME/resources/tmp/offcpu.bt
+stackcollapse-stap.pl $WORK_HOME/resources/tmp/offcpu.bt > $WORK_HOME/resources/tmp/offcpu.cbt
+flamegraph.pl $WORK_HOME/resources/tmp/offcpu.cbt > $WORK_HOME/resources/tmp/offcpu.svg
+
+
+Perf
+sudo perf record -e LLC-loads,LLC-stores,cs,migrations,memloads,memstores -F 99 -o $WORK_HOME/resources/tmp/cpu.data -g java -agentpath:$WORK_HOME/resources/perf-map-agent/libperfmap.so=unfold,msig -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0
+
+
+sudo perf script -i $WORK_HOME/resources/tmp/cpu.data | stackcollapse-perf.pl > $WORK_HOME/resources/tmp/cpuout.perf-folded
+flamegraph.pl --color=java $WORK_HOME/resources/tmp/cpuout.perf-folded > $WORK_HOME/resources/tmp/cpuperf-kernel.svg
+
+
+valgrind --tool=cachegrind java -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0
+
+
+collect -h dch -h l2h -h l3h -h l3m -j on -d $WORK_HOME/resources/tmp -o cacheandmemory.er taskset -c 1,3 java -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0
+
+Oprofile
+sudo operf --vmlinux=/usr/lib/debug/boot/vmlinux-3.13.0-43-generic java -agentpath:/usr/local/lib64/oprofile/libjvmti_oprofile.so -cp $WORK_HOME/HARDWARE/HardwareBasedQueues/target/HardwareBasedQueues-1.0-SNAPSHOT.jar org.mk.training.logic.queues.QueuePerfTest 0 2
+
+#Summary
+sudo opreport --session-dir=./resources/tmp/cpu
+sudo opreport --long-filenames --session-dir=./resources/tmp/cpu
+sudo opreport -l -p /lib/modules/`uname -r` --long-filenames --session-dir=./resources/tmp/cpu | more
+
+sudo opannotate --source --base-dirs=/home/mohit/Work/Linux/src, --search-dirs=/home/mohit/Work/Linux/src,/usr/lib/jvm/java-7-oracle/src/java/util/concurrent/locks,/usr/lib/jvm/java-7-oracle/src/java/util/concurrent --output-dir=/home/mohit/Work/JINT/resources/tmp/ --session-dir=./resources/tmp/cpu
+
